@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: medical-ml-platform
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/medicalml}
+    username: ${SPRING_DATASOURCE_USERNAME:medicalml}
+    password: ${SPRING_DATASOURCE_PASSWORD:medicalml_pass}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+
+# ML Service
+ml:
+  service:
+    url: ${ML_SERVICE_URL:http://localhost:8001}
+
+# JWT
+jwt:
+  access-token-expiry: 900000      # 15 minutes
+  refresh-token-expiry: 604800000  # 7 days
+
+# Swagger
+springdoc:
+  api-docs:
+    path: /api/api-docs
+  swagger-ui:
+    path: /api/swagger-ui.html
+
+logging:
+  level:
+    com.medicalml: DEBUG
+    org.hibernate.SQL: WARN

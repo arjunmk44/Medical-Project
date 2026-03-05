@@ -1,0 +1,6 @@
+mrn,first_name,last_name,age,sex,systolic_bp,diastolic_bp,heart_rate,glucose,hba1c,total_cholesterol,ldl,hdl,triglycerides,alt,ast,alp,creatinine,bun,egfr,height_cm,weight_kg,bmi,waist_cm,hip_cm,smoking_status,alcohol_units,activity_level,sleep_hours
+MRN-S001,John,Smith,58,M,142,88,78,126,6.5,245,165,38,210,45,38,85,1.2,22,68,175,92,30.0,102,100,former,5,low,6
+MRN-S002,Sarah,Johnson,45,F,118,75,68,95,5.2,195,118,55,110,22,19,62,0.8,14,92,163,65,24.5,78,96,never,2,moderate,7.5
+MRN-S003,Michael,Williams,67,M,155,95,82,180,8.1,265,178,32,275,58,52,98,1.5,28,55,180,105,32.4,110,104,current,8,low,5.5
+MRN-S004,Emily,Brown,34,F,112,72,65,88,4.8,175,102,62,55,18,15,55,0.7,12,105,168,58,20.5,70,92,never,1,high,8
+MRN-S005,Robert,Davis,72,M,165,98,88,210,9.2,285,195,28,310,72,65,115,2.1,35,42,172,98,33.1,115,108,former,10,low,5
