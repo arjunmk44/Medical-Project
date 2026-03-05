@@ -369,11 +369,11 @@ Free for educational - and research purposes.
   <tr>
     <td align="center">
       <strong>Achyuth</strong><br>
-      <a href="https://github.com/your-username">
-        <img src="https://img.shields.io/badge/GitHub-@your--username-181717?style=flat-square&logo=github" alt="GitHub"/>
+      <a href="https://github.com/Achyut-MS">
+        <img src="https://img.shields.io/badge/GitHub-@Achyut-MS-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
       <br>
-      <a href="mailto:your.email@example.com">
+      <a href="mailto:achyutm791@gmail.com">
         <img src="https://img.shields.io/badge/Email-Contact_Me-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
       </a>
     </td>
