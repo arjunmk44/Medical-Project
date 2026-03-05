@@ -370,7 +370,7 @@ Free for educational - and research purposes.
     <td align="center">
       <strong>Achyuth</strong><br>
       <a href="https://github.com/Achyut-MS">
-        <img src="https://img.shields.io/badge/GitHub-@your--username-181717?style=flat-square&logo=github" alt="GitHub"/>
+        <img src="https://img.shields.io/badge/GitHub-Achyut--MS-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
       <br>
       <a href="mailto:achyutm791@gmail.com">
