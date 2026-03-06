@@ -11,21 +11,47 @@ import java.util.Map;
 
 /**
  * Visualization data endpoints — Ref-1 Layer 7.
- * Provides chart data for the frontend dashboards.
+ * Provides pre-computed chart data for the frontend dashboards.
+ *
+ * Base path: /api/viz
+ * Requires authentication.
+ *
+ * These endpoints return chart-ready data structures for:
+ * - Patient cluster scatter plots
+ * - Feature importance bar charts
+ * - Biomarker correlation heatmaps
+ * - Population-level statistics
+ * - Survival analysis curves
+ *
+ * Note: In the current implementation, most endpoints return mock/demo data.
+ * In production, these would pull from the database or the ML service.
  */
 @RestController
 @RequestMapping("/api/viz")
 @RequiredArgsConstructor
 public class VisualizationController {
 
+        /** WebClient builder for making HTTP calls to the ML microservice. */
         private final WebClient.Builder webClientBuilder;
 
+        /** URL of the Python ML microservice (defaults to http://localhost:8001). */
         @Value("${ml.service.url:http://localhost:8001}")
         private String mlServiceUrl;
 
+        /**
+         * Get patient cluster map data for a 2D scatter plot.
+         *
+         * Returns cluster centers with:
+         * - x, y: Coordinates (from PCA or t-SNE dimensionality reduction)
+         * - cluster: Cluster ID (0-3)
+         * - label: Human-readable cluster name (Healthy, Monitor Closely, At Risk, High
+         * Risk)
+         * - size: Number of patients in the cluster
+         *
+         * @return 200 OK with cluster map data
+         */
         @GetMapping("/cluster-map")
         public ResponseEntity<?> getClusterMap() {
-                // Return cluster visualization data from ML service
                 return ResponseEntity.ok(ApiResponse.Success.builder()
                                 .data(Map.of(
                                                 "clusters", new Object[] {
@@ -41,6 +67,14 @@ public class VisualizationController {
                                 .message("Cluster map data retrieved").build());
         }
 
+        /**
+         * Get feature importance data for a bar chart.
+         *
+         * Returns the top 10 most important biomarker features ranked by their
+         * contribution to the ML model's predictions (from SHAP analysis).
+         *
+         * @return 200 OK with feature names and importance scores (0.0 to 1.0)
+         */
         @GetMapping("/feature-importance")
         public ResponseEntity<?> getFeatureImportance() {
                 return ResponseEntity.ok(ApiResponse.Success.builder()
@@ -59,6 +93,19 @@ public class VisualizationController {
                                 .message("Feature importance data retrieved").build());
         }
 
+        /**
+         * Get correlation heatmap data showing relationships between biomarkers.
+         *
+         * Returns:
+         * - labels: Array of biomarker names (row and column headers)
+         * - matrix: 2D array of Pearson correlation coefficients (-1.0 to 1.0)
+         *
+         * Values close to 1.0 indicate strong positive correlation,
+         * close to -1.0 indicate strong negative correlation,
+         * and close to 0.0 indicate no linear relationship.
+         *
+         * @return 200 OK with labels and correlation matrix
+         */
         @GetMapping("/correlation-heatmap")
         public ResponseEntity<?> getCorrelationHeatmap() {
                 String[] biomarkers = { "SystolicBP", "DiastolicBP", "Glucose", "HbA1c", "LDL", "HDL", "BMI",
@@ -78,6 +125,18 @@ public class VisualizationController {
                                 .message("Correlation heatmap data retrieved").build());
         }
 
+        /**
+         * Get population-level health statistics for the dashboard summary cards.
+         *
+         * Returns:
+         * - totalPatients: Total number of patients in the system
+         * - atRiskCount: Number of patients classified as "At Risk"
+         * - avgRiskScore: Average risk score across all patients (0.0 to 1.0)
+         * - activeAlerts: Number of unacknowledged health warnings
+         * - riskDistribution: Breakdown of patients by health label
+         *
+         * @return 200 OK with population statistics
+         */
         @GetMapping("/population-stats")
         public ResponseEntity<?> getPopulationStats() {
                 return ResponseEntity.ok(ApiResponse.Success.builder()
@@ -91,9 +150,21 @@ public class VisualizationController {
                                 .message("Population stats retrieved").build());
         }
 
+        /**
+         * Get survival analysis data (Kaplan-Meier curves) for patient subgroups.
+         *
+         * First attempts to fetch data from the Python ML service. If the ML service
+         * is unavailable, falls back to returning a stub message.
+         *
+         * In production, this would return Kaplan-Meier survival curves per PDM
+         * subgroup,
+         * log-rank test results, and demographic breakdowns (Ref-2 Section 3.3.2).
+         *
+         * @return 200 OK with survival analysis data (from ML service or stub)
+         */
         @GetMapping("/survival-analysis")
         public ResponseEntity<?> getSurvivalAnalysis() {
-                // Delegate to ML service for Kaplan-Meier data (Ref-2)
+                // Attempt to delegate to the Python ML service for real survival data
                 try {
                         var response = webClientBuilder.build()
                                         .get()
@@ -107,9 +178,10 @@ public class VisualizationController {
                                                 .message("Survival analysis data retrieved").build());
                         }
                 } catch (Exception ignored) {
+                        // ML service unavailable — fall back to stub data
                 }
 
-                // Return mock survival data for local dev
+                // Return mock survival data for local development
                 return ResponseEntity.ok(ApiResponse.Success.builder()
                                 .data(Map.of("message", "Survival analysis data - see /ml/analyze for per-record data"))
                                 .message("Survival analysis data retrieved").build());

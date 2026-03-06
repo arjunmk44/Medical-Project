@@ -14,17 +14,46 @@ import java.util.*;
 
 /**
  * Data ingestion service — Ref-1 Layer 1.
- * Parses CSV/Excel/JSON/HL7/FHIR files and extracts biomarkers.
+ * Parses uploaded medical data files (CSV/Excel/JSON) and stores the extracted
+ * patient demographics and biomarker values in the database.
+ *
+ * Processing flow:
+ * 1. Detect file format from the filename extension.
+ * 2. Parse the file into a list of key-value row maps.
+ * 3. For each row:
+ * a. Find or create a Patient record (matched by MRN).
+ * b. Create a CheckupRecord with status "PARSED".
+ * c. Extract all biomarker values into a Biomarker entity.
+ * 4. Return summary (record count, IDs, format, filename).
+ *
+ * After ingestion, records are ready for ML analysis via the /ml/analyze
+ * endpoint.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class IngestService {
 
+    /** Repository for creating/finding Patient records. */
     private final PatientRepository patientRepository;
+
+    /** Repository for creating CheckupRecord entries. */
     private final CheckupRecordRepository recordRepository;
+
+    /** Repository for creating Biomarker entries. */
     private final BiomarkerRepository biomarkerRepository;
 
+    /**
+     * Upload and process a medical data file.
+     *
+     * This method runs in a single database transaction — if any row fails,
+     * all changes are rolled back (@Transactional).
+     *
+     * @param file The uploaded multipart file (CSV, Excel, or JSON)
+     * @return Map containing: recordsProcessed (int), recordIds (List<UUID>),
+     *         format (String), filename (String)
+     * @throws RuntimeException If the file format is unsupported or parsing fails
+     */
     @Transactional
     public Map<String, Object> uploadFile(MultipartFile file) {
         String filename = file.getOriginalFilename();
@@ -33,11 +62,12 @@ public class IngestService {
         log.info("Ingesting file: {} (format: {})", filename, format);
 
         try {
+            // Parse all rows from the file into a list of key-value maps
             List<Map<String, String>> rows = parseFile(file, format);
             List<UUID> recordIds = new ArrayList<>();
 
             for (Map<String, String> row : rows) {
-                // Find or create patient
+                // Step 3a: Find existing patient by MRN, or create a new one
                 String mrn = row.getOrDefault("mrn", "MRN-" + UUID.randomUUID().toString().substring(0, 8));
                 Patient patient = patientRepository.findByMrn(mrn)
                         .orElseGet(() -> {
@@ -51,7 +81,7 @@ public class IngestService {
                             return patientRepository.save(p);
                         });
 
-                // Create checkup record
+                // Step 3b: Create a checkup record linking this data to the patient
                 CheckupRecord record = CheckupRecord.builder()
                         .patientId(patient.getId())
                         .recordDate(LocalDate.now())
@@ -62,7 +92,7 @@ public class IngestService {
                 record = recordRepository.save(record);
                 recordIds.add(record.getId());
 
-                // Extract biomarkers
+                // Step 3c: Extract all biomarker values from the row data
                 Biomarker biomarker = Biomarker.builder()
                         .recordId(record.getId())
                         .systolicBp(parseBigDecimal(row.get("systolic_bp")))
@@ -107,6 +137,14 @@ public class IngestService {
         }
     }
 
+    /**
+     * Route file parsing to the appropriate format-specific parser.
+     *
+     * @param file   The uploaded file
+     * @param format Detected format: "CSV", "EXCEL", or "JSON"
+     * @return List of parsed rows, each as a Map of column_name → value
+     * @throws Exception If parsing fails
+     */
     private List<Map<String, String>> parseFile(MultipartFile file, String format) throws Exception {
         return switch (format) {
             case "CSV" -> parseCsv(file);
@@ -116,20 +154,35 @@ public class IngestService {
         };
     }
 
+    /**
+     * Parse a CSV file into a list of row maps.
+     *
+     * Assumes:
+     * - First line is the header row (column names).
+     * - Subsequent lines are data rows.
+     * - Columns are comma-separated (no quoting support).
+     * - Header names are lowercased and special chars replaced with underscores.
+     *
+     * @param file The CSV file
+     * @return List of rows, each as {column_name: value}
+     * @throws Exception If reading fails
+     */
     private List<Map<String, String>> parseCsv(MultipartFile file) throws Exception {
         String content = new String(file.getBytes());
         String[] lines = content.split("\n");
         if (lines.length < 2)
             return List.of();
 
+        // Parse header row — normalize to lowercase with underscores
         String[] headers = lines[0].trim().split(",");
         List<Map<String, String>> rows = new ArrayList<>();
 
+        // Parse each data row
         for (int i = 1; i < lines.length; i++) {
             String line = lines[i].trim();
             if (line.isEmpty())
                 continue;
-            String[] values = line.split(",", -1);
+            String[] values = line.split(",", -1); // -1 preserves trailing empty strings
             Map<String, String> row = new HashMap<>();
             for (int j = 0; j < headers.length && j < values.length; j++) {
                 String key = headers[j].trim().toLowerCase().replaceAll("[^a-z0-9_]", "_");
@@ -140,6 +193,18 @@ public class IngestService {
         return rows;
     }
 
+    /**
+     * Parse an Excel (.xlsx) file into a list of row maps.
+     *
+     * Uses Apache POI XSSFWorkbook for .xlsx format. The workbook is opened
+     * with try-with-resources to prevent resource leaks.
+     *
+     * Reads the first sheet only. First row = headers, remaining rows = data.
+     *
+     * @param file The Excel file
+     * @return List of rows, each as {column_name: value}
+     * @throws Exception If reading fails
+     */
     private List<Map<String, String>> parseExcel(MultipartFile file) throws Exception {
         try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(file.getInputStream())) {
             var sheet = workbook.getSheetAt(0);
@@ -147,12 +212,14 @@ public class IngestService {
             if (headerRow == null)
                 return List.of();
 
+            // Parse header row
             String[] headers = new String[headerRow.getLastCellNum()];
             for (int i = 0; i < headers.length; i++) {
                 headers[i] = headerRow.getCell(i).getStringCellValue().trim().toLowerCase().replaceAll("[^a-z0-9_]",
                         "_");
             }
 
+            // Parse data rows
             List<Map<String, String>> rows = new ArrayList<>();
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 var row = sheet.getRow(i);
@@ -162,6 +229,7 @@ public class IngestService {
                 for (int j = 0; j < headers.length; j++) {
                     var cell = row.getCell(j);
                     if (cell != null) {
+                        // Convert cell value to String based on cell type
                         rowMap.put(headers[j], switch (cell.getCellType()) {
                             case NUMERIC -> String.valueOf(cell.getNumericCellValue());
                             case STRING -> cell.getStringCellValue();
@@ -175,6 +243,17 @@ public class IngestService {
         }
     }
 
+    /**
+     * Parse a JSON file containing an array of patient objects.
+     *
+     * Expected format: [ { "mrn": "123", "glucose": 95, ... }, { ... } ]
+     *
+     * Each object's keys are lowercased, and all values are converted to strings.
+     *
+     * @param file The JSON file
+     * @return List of rows, each as {field_name: value_as_string}
+     * @throws Exception If parsing fails
+     */
     private List<Map<String, String>> parseJson(MultipartFile file) throws Exception {
         var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         var tree = mapper.readTree(file.getBytes());
@@ -191,6 +270,12 @@ public class IngestService {
         return rows;
     }
 
+    /**
+     * Detect the file format from the filename extension.
+     *
+     * @param filename Original filename (e.g., "patients.xlsx")
+     * @return Format string: "CSV", "EXCEL", or "JSON" (defaults to "CSV")
+     */
     private String detectFormat(String filename) {
         if (filename == null)
             return "CSV";
@@ -202,6 +287,12 @@ public class IngestService {
         return "CSV";
     }
 
+    /**
+     * Safely parse a String to BigDecimal, returning null for invalid/empty values.
+     *
+     * @param value The string value to parse
+     * @return BigDecimal representation, or null if unparseable
+     */
     private BigDecimal parseBigDecimal(String value) {
         if (value == null || value.isBlank())
             return null;
@@ -212,6 +303,13 @@ public class IngestService {
         }
     }
 
+    /**
+     * Safely parse a String to Integer via Double.parseDouble (handles "25.0" →
+     * 25).
+     *
+     * @param value The string value to parse
+     * @return Integer representation, or null if unparseable
+     */
     private Integer parseIntSafe(String value) {
         if (value == null || value.isBlank())
             return null;

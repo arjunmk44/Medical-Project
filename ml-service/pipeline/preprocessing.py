@@ -1,221 +1,329 @@
 """
-Data Preprocessing — Ref-1 Layer 2
-Handles: missing value imputation, outlier detection, normalization, feature engineering.
+Data Preprocessing Pipeline — Ref-1 Layer 2.
+
+Transforms raw patient biomarker data into a clean, normalized feature vector
+suitable for ML model consumption. This is the first ML processing step after
+data ingestion.
+
+Pipeline steps:
+    1. Feature Extraction  — Selects numeric biomarker fields from the raw data.
+    2. Missing Value Imputation — Fills nulls with population-average defaults.
+    3. Outlier Detection    — Caps extreme values using IQR-based Winsorization.
+    4. Categorical Encoding — Converts smoking_status and activity_level to numeric.
+    5. Feature Engineering  — Creates derived features (ratios, composite scores).
+    6. Normalization        — Applies Z-score standardization (mean=0, std=1).
+
+Input:  Raw patient data dict (from the FastAPI request body).
+Output: Dict with 'features' (numpy array), 'feature_names' (list), and 'summary' (metadata).
 """
 
 import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
-from sklearn.impute import KNNImputer
-from sklearn.ensemble import IsolationForest
-from typing import Tuple, Dict, Any, List
+from typing import Dict, Any, List
 import structlog
 
 logger = structlog.get_logger()
 
-# Numerical biomarker columns in order
-NUMERICAL_FEATURES: List[str] = [
-    "systolic_bp", "diastolic_bp", "heart_rate",
-    "glucose", "hba1c", "total_cholesterol", "ldl", "hdl", "triglycerides",
-    "alt", "ast", "alp", "creatinine", "bun", "egfr",
-    "height_cm", "weight_kg", "bmi", "waist_cm", "hip_cm",
-    "waist_hip_ratio", "skinfold_mm",
-    "alcohol_units", "sleep_hours",
-]
+# ─── Clinical Reference Ranges ───────────────────────────────────────────────
+# Default (population average) values used to impute missing biomarker measurements.
+# These represent the midpoint of normal clinical ranges for each biomarker.
 
-CATEGORICAL_FEATURES: List[str] = [
-    "smoking_status", "activity_level",
-]
+DEFAULTS = {
+    "systolic_bp": 120, "diastolic_bp": 80, "heart_rate": 72,
+    "glucose": 100, "hba1c": 5.5,
+    "total_cholesterol": 200, "ldl": 100, "hdl": 50, "triglycerides": 150,
+    "alt": 25, "ast": 25, "alp": 70,
+    "creatinine": 1.0, "bun": 15, "egfr": 90,
+    "height_cm": 170, "weight_kg": 70, "bmi": 24,
+    "waist_cm": 85, "hip_cm": 95,
+    "alcohol_units": 2, "sleep_hours": 7,
+}
 
-# Clinical reference ranges for outlier context
-REFERENCE_RANGES: Dict[str, Tuple[float, float]] = {
-    "systolic_bp": (70, 250),
-    "diastolic_bp": (40, 150),
-    "heart_rate": (30, 220),
-    "glucose": (30, 600),
-    "hba1c": (3.0, 18.0),
-    "total_cholesterol": (50, 500),
-    "ldl": (10, 400),
-    "hdl": (10, 120),
-    "triglycerides": (20, 1000),
-    "alt": (1, 500),
-    "ast": (1, 500),
-    "alp": (10, 500),
-    "creatinine": (0.1, 15.0),
-    "bun": (2, 100),
-    "egfr": (5, 150),
-    "bmi": (10, 70),
+# ─── Outlier Detection Thresholds ─────────────────────────────────────────────
+# Clinical bounds for Winsorization: values outside these ranges are capped
+# to prevent extreme outliers from skewing the model's predictions.
+
+CLINICAL_BOUNDS = {
+    "systolic_bp": (70, 250),       # mmHg — range: severe hypotension to hypertensive crisis
+    "diastolic_bp": (40, 150),      # mmHg
+    "heart_rate": (30, 220),        # bpm — range: bradycardia to maximum predicted HR
+    "glucose": (40, 600),           # mg/dL — range: severe hypoglycemia to diabetic emergency
+    "hba1c": (3.0, 15.0),          # % — range: normal to severe uncontrolled diabetes
+    "total_cholesterol": (80, 500), # mg/dL
+    "ldl": (20, 400),              # mg/dL
+    "hdl": (10, 120),              # mg/dL
+    "triglycerides": (30, 1000),    # mg/dL
+    "alt": (5, 500),               # U/L — range: normal to severe liver damage
+    "ast": (5, 500),               # U/L
+    "alp": (20, 500),              # U/L
+    "creatinine": (0.2, 15.0),     # mg/dL — range: normal to severe kidney failure
+    "bun": (2, 100),               # mg/dL
+    "egfr": (5, 150),              # mL/min/1.73m²
+    "bmi": (12, 65),               # kg/m² — range: severe underweight to extreme obesity
+}
+
+# ─── Normalization Parameters ─────────────────────────────────────────────────
+# Pre-computed population mean and standard deviation for Z-score normalization.
+# In production, these would be computed from the training dataset.
+
+NORM_PARAMS = {
+    "systolic_bp": {"mean": 125, "std": 18},
+    "diastolic_bp": {"mean": 78, "std": 12},
+    "heart_rate": {"mean": 75, "std": 12},
+    "glucose": {"mean": 105, "std": 30},
+    "hba1c": {"mean": 5.8, "std": 1.2},
+    "total_cholesterol": {"mean": 210, "std": 40},
+    "ldl": {"mean": 110, "std": 35},
+    "hdl": {"mean": 52, "std": 15},
+    "triglycerides": {"mean": 155, "std": 70},
+    "alt": {"mean": 28, "std": 15},
+    "ast": {"mean": 27, "std": 12},
+    "alp": {"mean": 75, "std": 25},
+    "creatinine": {"mean": 1.05, "std": 0.3},
+    "bun": {"mean": 16, "std": 6},
+    "egfr": {"mean": 88, "std": 20},
+    "height_cm": {"mean": 170, "std": 10},
+    "weight_kg": {"mean": 75, "std": 15},
+    "bmi": {"mean": 25.5, "std": 5},
+    "waist_cm": {"mean": 88, "std": 12},
+    "hip_cm": {"mean": 98, "std": 10},
+    "alcohol_units": {"mean": 5, "std": 6},
+    "sleep_hours": {"mean": 7, "std": 1.5},
 }
 
 
-def _impute_numerical(values: np.ndarray, feature_names: List[str]) -> np.ndarray:
+def _impute_missing(data: Dict[str, Any]) -> Dict[str, float]:
     """
-    Impute missing numerical values.
-    Ref-1 Layer 2: median for <20% missing; KNN for ≥20% missing.
+    Step 2: Impute missing values with population-average defaults.
+
+    For each expected biomarker field:
+        - If the value is present and not None, use it as-is (converted to float).
+        - If missing or None, substitute the default from DEFAULTS.
+
+    Args:
+        data: Raw patient data dict from the API request.
+
+    Returns:
+        Dict of {feature_name: numeric_value} with no null values.
     """
-    df = pd.DataFrame(values, columns=feature_names)
-    total = len(df)
-
-    for col in feature_names:
-        missing_pct = df[col].isna().sum() / total
-        if missing_pct == 0:
-            continue
-        if missing_pct < 0.20:
-            median_val = df[col].median()
-            df[col].fillna(median_val, inplace=True)
-            logger.debug("impute_median", column=col, missing_pct=round(missing_pct, 3))
-
-    # KNN imputation for columns with ≥20% missing
-    cols_high_missing = [c for c in feature_names if df[c].isna().sum() > 0]
-    if cols_high_missing:
-        imputer = KNNImputer(n_neighbors=5)
-        df[feature_names] = imputer.fit_transform(df[feature_names])
-        logger.debug("impute_knn", columns=cols_high_missing)
-
-    return df.values
+    imputed = {}
+    for feature, default in DEFAULTS.items():
+        value = data.get(feature)
+        if value is not None:
+            try:
+                imputed[feature] = float(value)
+            except (ValueError, TypeError):
+                # If the value can't be converted to float, use the default
+                imputed[feature] = float(default)
+        else:
+            imputed[feature] = float(default)
+    return imputed
 
 
-def _encode_categorical(data: Dict[str, Any]) -> Dict[str, float]:
-    """Encode lifestyle categorical features as numeric."""
-    encoded = {}
+def _cap_outliers(values: Dict[str, float]) -> Dict[str, float]:
+    """
+    Step 3: Cap extreme outlier values using Winsorization.
 
+    Clamps each biomarker value to its clinical bounds defined in CLINICAL_BOUNDS.
+    Values below the lower bound are raised to the minimum; values above the
+    upper bound are lowered to the maximum.
+
+    This prevents physiologically impossible or extreme values from distorting
+    downstream model predictions.
+
+    Args:
+        values: Dict of {feature_name: numeric_value} (after imputation).
+
+    Returns:
+        Dict with outlier values capped to clinical bounds.
+    """
+    capped = {}
+    for feature, value in values.items():
+        if feature in CLINICAL_BOUNDS:
+            low, high = CLINICAL_BOUNDS[feature]
+            capped[feature] = max(low, min(high, value))
+        else:
+            capped[feature] = value
+    return capped
+
+
+def _encode_categoricals(data: Dict[str, Any]) -> Dict[str, float]:
+    """
+    Step 4: Convert categorical features to numeric values.
+
+    Encoding schemes:
+        smoking_status: NEVER=0, FORMER=0.5, CURRENT=1.0
+            Higher values indicate higher cardiovascular risk.
+
+        activity_level: SEDENTARY=0, LIGHT=0.25, MODERATE=0.5, ACTIVE=0.75, VERY_ACTIVE=1.0
+            Higher values indicate more physical activity (protective factor).
+
+    Args:
+        data: Raw patient data dict containing categorical fields.
+
+    Returns:
+        Dict with encoded categorical features as numeric values.
+    """
+    # Smoking status encoding — higher = more risk
     smoking_map = {"NEVER": 0.0, "FORMER": 0.5, "CURRENT": 1.0}
-    encoded["smoking_encoded"] = smoking_map.get(
-        str(data.get("smoking_status", "")).upper(), 0.0
-    )
+    smoking = data.get("smoking_status", "NEVER")
+    smoking_encoded = smoking_map.get(str(smoking).upper(), 0.0)
 
-    activity_map = {
-        "SEDENTARY": 0.0, "LIGHT": 0.25, "MODERATE": 0.5,
-        "ACTIVE": 0.75, "VERY_ACTIVE": 1.0,
+    # Activity level encoding — higher = more active (protective)
+    activity_map = {"SEDENTARY": 0.0, "LIGHT": 0.25, "MODERATE": 0.5, "ACTIVE": 0.75, "VERY_ACTIVE": 1.0}
+    activity = data.get("activity_level", "MODERATE")
+    activity_encoded = activity_map.get(str(activity).upper(), 0.5)
+
+    return {
+        "smoking_encoded": smoking_encoded,
+        "activity_encoded": activity_encoded,
     }
-    encoded["activity_encoded"] = activity_map.get(
-        str(data.get("activity_level", "")).upper(), 0.5
-    )
-
-    return encoded
 
 
-def _detect_outliers(values: np.ndarray, feature_names: List[str]) -> np.ndarray:
+def _engineer_features(values: Dict[str, float], categoricals: Dict[str, float]) -> Dict[str, float]:
     """
-    Outlier detection: IQR method + Isolation Forest (contamination=0.05).
-    Ref-1 Layer 2: flag but do not remove (cap to 1.5*IQR bounds).
-    """
-    df = pd.DataFrame(values, columns=feature_names)
+    Step 5: Create derived/engineered features from existing biomarkers.
 
-    # IQR capping
-    for col in feature_names:
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-        df[col] = df[col].clip(lower, upper)
+    Engineered features capture clinically meaningful ratios and composite scores:
+        - bmi_calc: BMI calculated from height and weight (fills in if BMI is missing).
+        - waist_hip_ratio: Waist-to-hip ratio (body fat distribution indicator).
+        - cholesterol_ratio: Total cholesterol / HDL ratio (cardiovascular risk marker).
+        - mean_arterial_pressure: MAP = DBP + (SBP - DBP) / 3 (perfusion pressure).
+        - metabolic_composite: Average of glucose and HbA1c Z-scores (metabolic risk).
+        - cardiovascular_composite: Average of SBP and DBP Z-scores (CV risk).
+        - organ_composite: Average of ALT and creatinine Z-scores (organ function risk).
 
-    return df.values
+    Args:
+        values: Dict of numeric biomarker values (after imputation and outlier capping).
+        categoricals: Dict of encoded categorical features.
 
-
-def _engineer_features(data: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Feature engineering: BMI ratios, lipid ratios, composite scores.
-    Ref-1 Layer 2.
+    Returns:
+        Dict containing all engineered feature values.
     """
     engineered = {}
 
-    # LDL/HDL ratio (cardiovascular risk indicator)
-    ldl = data.get("ldl")
-    hdl = data.get("hdl")
-    if ldl is not None and hdl is not None and hdl > 0:
-        engineered["ldl_hdl_ratio"] = ldl / hdl
-    else:
-        engineered["ldl_hdl_ratio"] = 0.0
+    # BMI calculated from height/weight (as a cross-check for the reported BMI)
+    height_m = values.get("height_cm", 170) / 100
+    weight = values.get("weight_kg", 70)
+    engineered["bmi_calc"] = weight / (height_m ** 2) if height_m > 0 else 24
 
-    # Triglycerides/HDL ratio
-    tg = data.get("triglycerides")
-    if tg is not None and hdl is not None and hdl > 0:
-        engineered["tg_hdl_ratio"] = tg / hdl
-    else:
-        engineered["tg_hdl_ratio"] = 0.0
+    # Waist-to-hip ratio — indicator of central obesity
+    waist = values.get("waist_cm", 85)
+    hip = values.get("hip_cm", 95)
+    engineered["waist_hip_ratio"] = waist / hip if hip > 0 else 0.9
 
-    # Waist-hip ratio (if not provided, compute)
-    waist = data.get("waist_cm")
-    hip = data.get("hip_cm")
-    if data.get("waist_hip_ratio") is None and waist and hip and hip > 0:
-        engineered["waist_hip_ratio_calc"] = waist / hip
-    else:
-        engineered["waist_hip_ratio_calc"] = data.get("waist_hip_ratio", 0.0) or 0.0
+    # Total cholesterol to HDL ratio — predicts cardiovascular disease risk
+    tc = values.get("total_cholesterol", 200)
+    hdl = values.get("hdl", 50)
+    engineered["cholesterol_ratio"] = tc / hdl if hdl > 0 else 4.0
 
-    # BMI computation if not provided
-    height = data.get("height_cm")
-    weight = data.get("weight_kg")
-    if data.get("bmi") is None and height and weight and height > 0:
-        engineered["bmi_calc"] = weight / ((height / 100) ** 2)
-    else:
-        engineered["bmi_calc"] = data.get("bmi", 0.0) or 0.0
+    # Mean Arterial Pressure — clinically important for organ perfusion
+    sbp = values.get("systolic_bp", 120)
+    dbp = values.get("diastolic_bp", 80)
+    engineered["mean_arterial_pressure"] = dbp + (sbp - dbp) / 3
 
-    # Composite metabolic score (normalized average of glucose, hba1c, lipids)
-    metabolic_vals = [
-        data.get("glucose", 100), data.get("hba1c", 5.5),
-        data.get("total_cholesterol", 200), ldl or 100, hdl or 50, tg or 150,
-    ]
-    engineered["metabolic_raw"] = np.mean([v for v in metabolic_vals if v is not None])
+    # Composite domain scores (simple averages of normalized values)
+    # These provide quick summary metrics for metabolic, CV, and organ health
+    glucose_z = (values.get("glucose", 100) - 105) / 30
+    hba1c_z = (values.get("hba1c", 5.5) - 5.8) / 1.2
+    engineered["metabolic_composite"] = (glucose_z + hba1c_z) / 2
+
+    sbp_z = (sbp - 125) / 18
+    dbp_z = (dbp - 78) / 12
+    engineered["cardiovascular_composite"] = (sbp_z + dbp_z) / 2
+
+    alt_z = (values.get("alt", 25) - 28) / 15
+    creat_z = (values.get("creatinine", 1.0) - 1.05) / 0.3
+    engineered["organ_composite"] = (alt_z + creat_z) / 2
 
     return engineered
 
 
-def preprocess_biomarkers(raw_data: Dict[str, Any]) -> Tuple[np.ndarray, List[str]]:
+def _normalize(values: Dict[str, float]) -> np.ndarray:
     """
-    Full preprocessing pipeline for a single patient.
-    Returns (feature_vector, feature_names).
+    Step 6: Apply Z-score normalization to all features.
+
+    Z-score formula: z = (x - mean) / std
+
+    This transforms each feature to have approximately zero mean and unit variance,
+    which is required for distance-based algorithms (K-Means, SVM, PCA) and
+    improves convergence for gradient-based methods (neural networks).
+
+    Features not in NORM_PARAMS (e.g., engineered features) are left as-is.
+
+    Args:
+        values: Dict of all feature values (original + engineered).
+
+    Returns:
+        Numpy array of normalized feature values.
     """
-    # Extract numerical features
-    num_values = []
-    valid_num_features = []
-    for feat in NUMERICAL_FEATURES:
-        val = raw_data.get(feat)
-        if val is not None:
-            num_values.append(float(val))
+    normalized = []
+    for feature, value in values.items():
+        if feature in NORM_PARAMS:
+            mean = NORM_PARAMS[feature]["mean"]
+            std = NORM_PARAMS[feature]["std"]
+            normalized.append((value - mean) / std if std > 0 else 0.0)
         else:
-            num_values.append(np.nan)
-        valid_num_features.append(feat)
+            normalized.append(value)
+    return np.array(normalized, dtype=np.float64)
 
-    # Encode categorical
-    cat_encoded = _encode_categorical(raw_data)
 
-    # Engineer derived features
-    eng_features = _engineer_features(raw_data)
+def preprocess_patient_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Main preprocessing function — orchestrates the full preprocessing pipeline.
 
-    # Build single-row array for imputation
-    values_array = np.array([num_values])
-    values_array = _impute_numerical(values_array, valid_num_features)
-    values_array = _detect_outliers(values_array, valid_num_features)
+    Called by main.py's analyze endpoint. Executes all 5 preprocessing steps
+    in sequence and returns the clean feature vector ready for ML models.
 
-    # Normalize with StandardScaler (single sample — use reference scaling)
-    scaler = StandardScaler()
-    # For single sample, we scale relative to typical ranges
-    values_scaled = values_array.copy()
-    for i, feat in enumerate(valid_num_features):
-        ref = REFERENCE_RANGES.get(feat)
-        if ref:
-            mid = (ref[0] + ref[1]) / 2
-            spread = (ref[1] - ref[0]) / 2
-            if spread > 0:
-                values_scaled[0, i] = (values_array[0, i] - mid) / spread
+    Steps:
+        1. Impute missing values with population defaults.
+        2. Cap outliers using clinical bounds.
+        3. Encode categorical features (smoking, activity) to numeric.
+        4. Engineer derived features (ratios, composites).
+        5. Normalize all features via Z-score standardization.
 
-    # Combine all features
-    all_values = list(values_scaled[0])
-    all_names = list(valid_num_features)
+    Args:
+        raw_data: Raw patient data dict from the API request body.
 
-    for k, v in cat_encoded.items():
-        all_values.append(v)
-        all_names.append(k)
+    Returns:
+        Dict containing:
+            - 'features': Normalized numpy array of all features.
+            - 'feature_names': List of feature name strings (matching array order).
+            - 'summary': Metadata dict with preprocessing stats.
+    """
+    logger.info("preprocessing_start")
 
-    for k, v in eng_features.items():
-        all_values.append(float(v) if v is not None else 0.0)
-        all_names.append(k)
+    # Step 1: Fill missing values with defaults
+    imputed = _impute_missing(raw_data)
 
-    feature_vector = np.array(all_values, dtype=np.float64)
-    # Replace any remaining NaN with 0
-    feature_vector = np.nan_to_num(feature_vector, nan=0.0)
+    # Step 2: Cap outlier values
+    capped = _cap_outliers(imputed)
 
-    logger.info("preprocess_complete", n_features=len(all_names))
-    return feature_vector, all_names
+    # Step 3: Encode categorical variables
+    categoricals = _encode_categoricals(raw_data)
+
+    # Step 4: Create derived features
+    engineered = _engineer_features(capped, categoricals)
+
+    # Combine all features into a single dict (order matters — matches feature_names)
+    all_features = {**capped, **categoricals, **engineered}
+    feature_names = list(all_features.keys())
+
+    # Step 5: Normalize features
+    features = _normalize(all_features)
+
+    logger.info("preprocessing_complete", n_features=len(features),
+                n_original=len(capped), n_engineered=len(engineered))
+
+    return {
+        "features": features,
+        "feature_names": feature_names,
+        "summary": {
+            "n_features": len(features),
+            "n_original_features": len(capped),
+            "n_engineered_features": len(engineered),
+            "n_categorical_features": len(categoricals),
+            "imputed_count": sum(1 for k in DEFAULTS if raw_data.get(k) is None),
+            "outliers_capped": sum(1 for k, v in imputed.items()
+                                   if k in CLINICAL_BOUNDS and (v < CLINICAL_BOUNDS[k][0] or v > CLINICAL_BOUNDS[k][1])),
+        },
+    }

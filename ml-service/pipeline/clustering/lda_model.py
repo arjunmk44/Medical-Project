@@ -1,18 +1,30 @@
 """
-LDA (Latent Dirichlet Allocation) for Patient Subgroup Discovery — Ref-2
+LDA (Latent Dirichlet Allocation) for Patient Subgroup Discovery — Ref-2.
 
 From PMC7028517 (Wang et al.):
-- Treats each patient as a "document"
-- Biomarker buckets / diagnosis categories as "words"
-- Extracts K latent disease topics/clusters
-- Gensim implementation with coherence score tuning
+    LDA is a probabilistic topic model originally designed for text analysis.
+    Here it is repurposed for patient health profiling by treating:
+        - Each patient as a "document"
+        - Biomarker categorical buckets as "words"
+        - Latent health conditions as "topics"
 
-Ref-2 Section 3.1:
-  Patient w_m → sequence of disease diagnosis codes
-  θ_m ~ Dirichlet(α) — per-patient topic distribution
-  ϕ_k ~ Dirichlet(β) — per-topic disease distribution
-  z_{m,n} ~ Multinomial(θ_m) — topic assignment
-  w_{m,n} ~ Multinomial(ϕ_{z_{m,n}}) — observed diagnosis
+LDA Generative Process (Ref-2 Section 3.1):
+    For each of K disease topics:
+        Choose ϕ_k ~ Dirichlet(β)         — topic-to-word distribution
+    For each of M patients:
+        Choose θ_m ~ Dirichlet(α)          — patient-to-topic distribution
+        For each of N biomarker buckets:
+            Choose z_{m,n} ~ Multinomial(θ_m)   — topic assignment
+            Choose w_{m,n} ~ Multinomial(ϕ_z)   — observed bucket
+
+Example topic interpretation:
+    Topic 0: cardiovascular_normal, metabolic_normal → Healthy pattern
+    Topic 1: metabolic_prediabetic, bmi_overweight → Early metabolic risk
+    Topic 2: liver_significant_elevation, kidney_moderate_impairment → Organ dysfunction
+    Topic 3: cardiovascular_elevated, lifestyle_high_risk → Multiple risk factors
+
+In production, Gensim's LdaModel would be used on the full patient corpus.
+For single-sample inference, topic distributions are simulated.
 """
 
 import numpy as np
@@ -21,7 +33,10 @@ import structlog
 
 logger = structlog.get_logger()
 
-# Biomarker buckets used as "words" in the LDA document analogy
+# ─── Biomarker Bucket Vocabulary ──────────────────────────────────────────────
+# These categorical buckets serve as the "vocabulary" in the LDA analogy.
+# Continuous biomarker values are discretized into clinically meaningful categories.
+
 BIOMARKER_BUCKETS = [
     "cardiovascular_normal", "cardiovascular_borderline", "cardiovascular_elevated",
     "metabolic_normal", "metabolic_prediabetic", "metabolic_diabetic",
@@ -34,13 +49,29 @@ BIOMARKER_BUCKETS = [
 
 def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> List[str]:
     """
-    Convert continuous biomarker values into categorical buckets (Ref-2 analogy).
-    Each patient becomes a 'document' of bucket 'words'.
+    Convert continuous biomarker values into categorical buckets.
+
+    Each biomarker domain maps to a category based on thresholds:
+        - Cardiovascular: systolic_bp → normal / borderline / elevated
+        - Metabolic: (glucose + hba1c)/2 → normal / prediabetic / diabetic
+        - Liver: (ALT + AST)/2 → normal / mild / significant elevation
+        - Kidney: creatinine - eGFR → normal / mild / moderate impairment
+        - BMI: direct mapping → underweight / normal / overweight / obese
+        - Lifestyle: smoking - activity → healthy / moderate risk / high risk
+
+    Since features are Z-score normalized, thresholds are in standard deviation units.
+
+    Args:
+        features: Normalized feature array.
+        feature_names: Names of features matching the array.
+
+    Returns:
+        List of bucket label strings (one per biomarker domain).
     """
     feature_map = dict(zip(feature_names, features))
     buckets = []
 
-    # Cardiovascular
+    # Cardiovascular risk — based on systolic blood pressure Z-score
     sbp = feature_map.get("systolic_bp", 0)
     if sbp < 0:
         buckets.append("cardiovascular_normal")
@@ -49,7 +80,7 @@ def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> Li
     else:
         buckets.append("cardiovascular_elevated")
 
-    # Metabolic
+    # Metabolic risk — average of glucose and HbA1c Z-scores
     glucose = feature_map.get("glucose", 0)
     hba1c = feature_map.get("hba1c", 0)
     metabolic_avg = (glucose + hba1c) / 2
@@ -60,7 +91,7 @@ def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> Li
     else:
         buckets.append("metabolic_diabetic")
 
-    # Liver
+    # Liver function — average of ALT and AST Z-scores
     alt = feature_map.get("alt", 0)
     ast = feature_map.get("ast", 0)
     liver_avg = (alt + ast) / 2
@@ -71,10 +102,10 @@ def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> Li
     else:
         buckets.append("liver_significant_elevation")
 
-    # Kidney
+    # Kidney function — creatinine elevated + eGFR low = worse
     creatinine = feature_map.get("creatinine", 0)
     egfr = feature_map.get("egfr", 0)
-    kidney_score = creatinine - egfr  # inverted since high creat + low eGFR = bad
+    kidney_score = creatinine - egfr  # Inverted: high creat + low eGFR = bad
     if kidney_score < 0:
         buckets.append("kidney_normal")
     elif kidney_score < 0.5:
@@ -82,7 +113,7 @@ def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> Li
     else:
         buckets.append("kidney_moderate_impairment")
 
-    # BMI
+    # BMI category
     bmi = feature_map.get("bmi", 0) if "bmi" in feature_map else feature_map.get("bmi_calc", 0)
     if bmi < -0.5:
         buckets.append("bmi_underweight")
@@ -93,7 +124,7 @@ def _biomarkers_to_buckets(features: np.ndarray, feature_names: List[str]) -> Li
     else:
         buckets.append("bmi_obese")
 
-    # Lifestyle
+    # Lifestyle risk — smoking (risk factor) minus activity (protective factor)
     smoking = feature_map.get("smoking_encoded", 0)
     activity = feature_map.get("activity_encoded", 0.5)
     lifestyle_risk = smoking - activity
@@ -112,36 +143,49 @@ def run_lda(features: np.ndarray, feature_names: List[str],
     """
     LDA-based patient topic modeling (Ref-2).
 
+    Discovers latent health themes in the patient's biomarker profile.
+    Each topic represents a pattern of co-occurring biomarker abnormalities.
+
+    Process:
+        1. Convert biomarkers to categorical buckets (the "document").
+        2. Generate a topic distribution using Dirichlet sampling.
+        3. Adjust probabilities based on how many risk-related buckets are present.
+        4. Simulate per-topic word distributions (which buckets each topic covers).
+
     Args:
-        features: preprocessed feature vector
-        feature_names: feature names
-        n_topics: number of latent disease topics (K)
-        alpha: Dirichlet prior for document-topic distribution
-        eta: Dirichlet prior for topic-word distribution
+        features: Normalized feature array.
+        feature_names: Feature name list.
+        n_topics: Number of latent disease topics (K) — default 4.
+        alpha: Dirichlet prior for document-topic distribution (sparsity control).
+        eta: Dirichlet prior for topic-word distribution.
 
     Returns:
-        topic_distribution: per-patient topic probabilities θ_m
-        top_topics: highest probability topics with associated biomarker buckets
+        Dict containing:
+            - topic_distribution: Per-patient topic probabilities θ_m (list of K floats).
+            - dominant_topic: Index of the highest-probability topic.
+            - topic_compositions: Top 3 buckets per topic with probabilities.
+            - coherence_score: Simulated topic coherence (0.35-0.65).
+            - patient_buckets: The categorical buckets assigned to this patient.
+            - n_topics: Number of topics used.
     """
-    # Convert biomarkers to bucket representation
+    # Step 1: Convert biomarkers to bucket representation (the "document")
     buckets = _biomarkers_to_buckets(features, feature_names)
 
-    # Simulate LDA topic distribution
-    # In production, this would use gensim.models.LdaModel on the full corpus
+    # Step 2: Simulate LDA topic distribution via Dirichlet sampling
     np.random.seed(hash(tuple(buckets)) % 2**31)
     raw_dist = np.random.dirichlet(np.ones(n_topics) * alpha)
 
-    # Adjust based on bucket composition
+    # Step 3: Adjust based on how many buckets indicate risk
     risk_buckets = [b for b in buckets if "elevated" in b or "diabetic" in b
                     or "impairment" in b or "obese" in b or "high_risk" in b]
     risk_ratio = len(risk_buckets) / max(len(buckets), 1)
 
-    # Boost risk-related topics proportionally
-    raw_dist[n_topics - 1] += risk_ratio * 0.3
-    raw_dist[0] += (1 - risk_ratio) * 0.3
+    # Boost risk-related topics proportionally to risk ratio
+    raw_dist[n_topics - 1] += risk_ratio * 0.3    # Last topic = highest risk
+    raw_dist[0] += (1 - risk_ratio) * 0.3          # First topic = healthy
     topic_distribution = (raw_dist / raw_dist.sum()).tolist()
 
-    # Generate topic-word distributions
+    # Step 4: Simulate per-topic word distributions (top 3 buckets per topic)
     topic_compositions = []
     for k in range(n_topics):
         np.random.seed(k * 42)

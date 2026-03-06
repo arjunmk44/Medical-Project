@@ -1,6 +1,21 @@
 """
-Permutation Importance — Ref-1 Layer 5
-Baseline vs permuted feature score with 95% CI via bootstrap (n=100).
+Permutation Importance — Ref-1 Layer 5.
+
+Measures feature importance by shuffling each feature and observing how much
+the model's performance drops. Features causing large drops are important.
+
+Algorithm:
+    1. Compute baseline model score on original data.
+    2. For each feature: shuffle it, recompute the score.
+    3. Importance = baseline_score - permuted_score.
+    4. Repeat N times (bootstrap, n=100) for 95% confidence intervals.
+
+Advantages over tree-based importance:
+    - Model-agnostic (works with any classifier).
+    - Captures interaction effects.
+
+For single-sample inference, importance is simulated proportional to
+feature absolute value. Bootstrap provides mean ± std and 95% CI.
 """
 
 import numpy as np

@@ -1,10 +1,18 @@
 """
-Survival Analysis — Ref-2 (PMC7028517)
-Kaplan-Meier curves per PDM subgroup for evaluating patient stratification.
+Survival Analysis — Ref-2 (PMC7028517, Section 3.3.2).
 
-Ref-2 Section 3.3.2:
-  - Uses Log-rank test to compare survival curves between subgroups
-  - Evaluates PDM subgroups via demographics and ECI scores
+Generates synthetic Kaplan-Meier survival curves for patient subgroups
+discovered by the PDM (Poisson Dirichlet Model). Used to validate whether
+the identified subgroups have meaningfully different health outcomes.
+
+Key outputs:
+    - Kaplan-Meier curves: Survival probability over time for each subgroup.
+    - Log-rank test: Statistical test for significant differences between curves.
+    - ECI (Elixhauser Comorbidity Index): Summary comorbidity score per subgroup.
+    - Demographics: Age and sex distribution per subgroup.
+
+In production, real survival data (time-to-event, censoring) would be
+pulled from the patient database. Currently uses synthetic/mock data.
 """
 
 import numpy as np
