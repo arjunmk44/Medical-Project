@@ -1,7 +1,6 @@
 package com.medicalml.dto;
 
 import lombok.*;
-import java.util.Map;
 
 public class ApiResponse {
 

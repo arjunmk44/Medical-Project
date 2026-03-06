@@ -22,8 +22,9 @@ public class RiskController {
 
     @GetMapping("/risk/score/{patientId}")
     public ResponseEntity<?> getRiskScore(@PathVariable UUID patientId) {
-        // Get latest ML result for patient
+        var latestResult = mlResultRepository.findLatestByPatientId(patientId);
         return ResponseEntity.ok(ApiResponse.Success.builder()
+                .data(latestResult.orElse(null))
                 .message("Risk score retrieved").build());
     }
 
