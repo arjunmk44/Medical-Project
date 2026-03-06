@@ -141,37 +141,38 @@ public class IngestService {
     }
 
     private List<Map<String, String>> parseExcel(MultipartFile file) throws Exception {
-        var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(file.getInputStream());
-        var sheet = workbook.getSheetAt(0);
-        var headerRow = sheet.getRow(0);
-        if (headerRow == null)
-            return List.of();
+        try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(file.getInputStream())) {
+            var sheet = workbook.getSheetAt(0);
+            var headerRow = sheet.getRow(0);
+            if (headerRow == null)
+                return List.of();
 
-        String[] headers = new String[headerRow.getLastCellNum()];
-        for (int i = 0; i < headers.length; i++) {
-            headers[i] = headerRow.getCell(i).getStringCellValue().trim().toLowerCase().replaceAll("[^a-z0-9_]", "_");
-        }
-
-        List<Map<String, String>> rows = new ArrayList<>();
-        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-            var row = sheet.getRow(i);
-            if (row == null)
-                continue;
-            Map<String, String> rowMap = new HashMap<>();
-            for (int j = 0; j < headers.length; j++) {
-                var cell = row.getCell(j);
-                if (cell != null) {
-                    rowMap.put(headers[j], switch (cell.getCellType()) {
-                        case NUMERIC -> String.valueOf(cell.getNumericCellValue());
-                        case STRING -> cell.getStringCellValue();
-                        default -> "";
-                    });
-                }
+            String[] headers = new String[headerRow.getLastCellNum()];
+            for (int i = 0; i < headers.length; i++) {
+                headers[i] = headerRow.getCell(i).getStringCellValue().trim().toLowerCase().replaceAll("[^a-z0-9_]",
+                        "_");
             }
-            rows.add(rowMap);
+
+            List<Map<String, String>> rows = new ArrayList<>();
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                var row = sheet.getRow(i);
+                if (row == null)
+                    continue;
+                Map<String, String> rowMap = new HashMap<>();
+                for (int j = 0; j < headers.length; j++) {
+                    var cell = row.getCell(j);
+                    if (cell != null) {
+                        rowMap.put(headers[j], switch (cell.getCellType()) {
+                            case NUMERIC -> String.valueOf(cell.getNumericCellValue());
+                            case STRING -> cell.getStringCellValue();
+                            default -> "";
+                        });
+                    }
+                }
+                rows.add(rowMap);
+            }
+            return rows;
         }
-        workbook.close();
-        return rows;
     }
 
     private List<Map<String, String>> parseJson(MultipartFile file) throws Exception {
