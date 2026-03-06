@@ -377,8 +377,6 @@ Free for educational - and research purposes.
         <img src="https://img.shields.io/badge/Email-achyutm791@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <strong>Achyuth</strong><br>
       <a href="https://github.com/Akshayweeby">
@@ -389,8 +387,6 @@ Free for educational - and research purposes.
         <img src="https://img.shields.io/badge/Email-aksh.techi@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <strong>Achyuth</strong><br>
       <a href="https://github.com/arjunmk44">
