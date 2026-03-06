@@ -366,7 +366,7 @@ Free for educational - and research purposes.
 ## 👤 Author & Contact
 
 <table>
-  <tr>
+  <tr align="center">
     <td align="center">
       <strong>Achyuth</strong><br>
       <a href="https://github.com/Achyut-MS">
