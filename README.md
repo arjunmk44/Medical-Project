@@ -365,8 +365,8 @@ Free for educational - and research purposes.
 
 ## 👤 Author & Contact
 
-<table>
-  <tr align="center">
+<table align="center">
+  <tr>
     <td align="center">
       <strong>Achyuth</strong><br>
       <a href="https://github.com/Achyut-MS">
@@ -378,7 +378,7 @@ Free for educational - and research purposes.
       </a>
     </td>
     <td align="center">
-      <strong>Achyuth</strong><br>
+      <strong>Akshay</strong><br>
       <a href="https://github.com/Akshayweeby">
         <img src="https://img.shields.io/badge/GitHub-Akshayweeby-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
@@ -388,7 +388,7 @@ Free for educational - and research purposes.
       </a>
     </td>
     <td align="center">
-      <strong>Achyuth</strong><br>
+      <strong>Arjun</strong><br>
       <a href="https://github.com/arjunmk44">
         <img src="https://img.shields.io/badge/GitHub-arjunmk44-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
