@@ -393,7 +393,7 @@ Free for educational - and research purposes.
         <img src="https://img.shields.io/badge/GitHub-arjunmk44-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
       <br>
-      <a href="mailto:achyutm791@gmail.com">
+      <a href="mailto:kashyaparjun2006@gmail.com">
         <img src="https://img.shields.io/badge/Email-achyutm791@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
       </a>
     </td>
