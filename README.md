@@ -394,7 +394,17 @@ Free for educational - and research purposes.
       </a>
       <br>
       <a href="mailto:kashyaparjun2006@gmail.com">
-        <img src="https://img.shields.io/badge/Email-achyutm791@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
+        <img src="https://img.shields.io/badge/Email-kashyaparjun2006@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
+      </a>
+    </td>
+    <td align="center">
+      <strong>Pramath louda</strong><br>
+      <a href="https://github.com/Pramstappen3">
+        <img src="https://img.shields.io/badge/GitHub-Pramstappen3-181717?style=flat-square&logo=github" alt="GitHub"/>
+      </a>
+      <br>
+      <a href="mailto:kanagalpramath@gmail.com">
+        <img src="https://img.shields.io/badge/Email-kanagalpramath@gmail.com-D14836?style=flat-square&logo=gmail&logoColor=white" alt="Email"/>
       </a>
     </td>
   </tr>
