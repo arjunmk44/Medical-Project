@@ -398,7 +398,7 @@ Free for educational - and research purposes.
       </a>
     </td>
     <td align="center">
-      <strong>Pramath louda</strong><br>
+      <strong>Pramath</strong><br>
       <a href="https://github.com/Pramstappen3">
         <img src="https://img.shields.io/badge/GitHub-Pramstappen3-181717?style=flat-square&logo=github" alt="GitHub"/>
       </a>
