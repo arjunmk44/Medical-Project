@@ -120,3 +120,26 @@ def compute_survival_data(
         "n_subgroups": n_subgroups,
         "n_timepoints": n_timepoints,
     }
+
+
+def generate_survival_curves(
+    cluster_id: int = 0,
+    age: Optional[int] = None,
+    sex: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Wrapper around compute_survival_data matching the signature expected by main.py.
+
+    Args:
+        cluster_id: The patient's assigned cluster from K-Means.
+        age: Patient age (used for context in the response).
+        sex: Patient sex (used for context in the response).
+
+    Returns:
+        Survival analysis results with the patient's cluster highlighted.
+    """
+    result = compute_survival_data()
+    result["patient_cluster_id"] = cluster_id
+    result["patient_age"] = age
+    result["patient_sex"] = sex
+    return result

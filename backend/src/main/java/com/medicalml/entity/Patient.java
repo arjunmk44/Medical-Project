@@ -57,7 +57,7 @@ public class Patient {
     private Integer age;
 
     /** Patient's sex — single character: "M" or "F". */
-    @Column(length = 1)
+    @Column(length = 1, columnDefinition = "CHAR(1)")
     private String sex;
 
     /** Patient's date of birth. Nullable (may not be provided). */

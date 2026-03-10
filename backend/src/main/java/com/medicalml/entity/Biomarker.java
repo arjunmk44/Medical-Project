@@ -1,146 +1,124 @@
 package com.medicalml.entity;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 
-/*
- * Entity class representing biomarker readings of a patient.
- * These values are used for medical analysis and prediction of
- * cardiovascular diseases such as Myocardial Infarction.
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * JPA entity representing biomarker readings from a patient checkup.
+ * Maps to the "biomarkers" database table.
+ *
+ * Each biomarker record is linked to a CheckupRecord (via recordId)
+ * and contains all clinical measurements taken during a single visit.
  */
-
 @Entity
 @Table(name = "biomarkers")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Biomarker {
 
-    // Primary key for the biomarker record
+    /** Auto-generated UUID primary key. */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
-    // Total cholesterol level (mg/dL)
-    // Normal range roughly: 125–200
-    @Column(name = "cholesterol")
-    @Min(50)
-    @Max(400)
-    private double cholesterol;
+    /** Foreign key linking to the CheckupRecord. */
+    @Column(name = "record_id", nullable = false)
+    private UUID recordId;
 
-    // Systolic blood pressure (top number)
-    // Example: 120 in 120/80
-    @Column(name = "systolic_pressure")
-    @Min(70)
-    @Max(250)
-    private int systolicPressure;
+    // ─── Vital & Cardiovascular ───────────────────────────────────────
+    @Column(name = "systolic_bp", precision = 6, scale = 2)
+    private BigDecimal systolicBp;
 
-    // Diastolic blood pressure (bottom number)
-    // Example: 80 in 120/80
-    @Column(name = "diastolic_pressure")
-    @Min(40)
-    @Max(150)
-    private int diastolicPressure;
+    @Column(name = "diastolic_bp", precision = 6, scale = 2)
+    private BigDecimal diastolicBp;
 
-    // Heart rate in beats per minute
-    // Normal resting range: 60–100 bpm
-    @Column(name = "heart_rate")
-    @Min(30)
-    @Max(220)
-    private double heartRate;
+    @Column(name = "heart_rate", precision = 6, scale = 2)
+    private BigDecimal heartRate;
 
-    // Blood glucose level (mg/dL)
-    // Used to detect diabetes risk
-    @Column(name = "glucose")
-    @Min(40)
-    @Max(500)
-    private double glucose;
+    // ─── Metabolic Panel ──────────────────────────────────────────────
+    @Column(precision = 8, scale = 2)
+    private BigDecimal glucose;
 
-    /*
-     * Many biomarker records can belong to one patient.
-     * This establishes the relationship between Biomarker and Patient.
-     */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "patient_id")
+    @Column(precision = 5, scale = 2)
+    private BigDecimal hba1c;
 
-    // Prevents infinite JSON recursion when sending API responses
-    @JsonIgnore
-    private Patient patient;
+    @Column(name = "total_cholesterol", precision = 8, scale = 2)
+    private BigDecimal totalCholesterol;
 
-    // Default constructor required by JPA
-    public Biomarker() {}
+    @Column(precision = 8, scale = 2)
+    private BigDecimal ldl;
 
-    /*
-     * Constructor used to create biomarker objects
-     * when inserting new medical readings.
-     */
-    public Biomarker(double cholesterol, int systolicPressure,
-                     int diastolicPressure, double heartRate,
-                     double glucose, Patient patient) {
+    @Column(precision = 8, scale = 2)
+    private BigDecimal hdl;
 
-        this.cholesterol = cholesterol;
-        this.systolicPressure = systolicPressure;
-        this.diastolicPressure = diastolicPressure;
-        this.heartRate = heartRate;
-        this.glucose = glucose;
-        this.patient = patient;
-    }
+    @Column(precision = 8, scale = 2)
+    private BigDecimal triglycerides;
 
-    // Getter for biomarker ID
-    public Long getId() {
-        return id;
-    }
+    // ─── Organ Function (Liver) ───────────────────────────────────────
+    @Column(precision = 8, scale = 2)
+    private BigDecimal alt;
 
-    // Getter and Setter for cholesterol
-    public double getCholesterol() {
-        return cholesterol;
-    }
+    @Column(precision = 8, scale = 2)
+    private BigDecimal ast;
 
-    public void setCholesterol(double cholesterol) {
-        this.cholesterol = cholesterol;
-    }
+    @Column(precision = 8, scale = 2)
+    private BigDecimal alp;
 
-    // Getter and Setter for systolic blood pressure
-    public int getSystolicPressure() {
-        return systolicPressure;
-    }
+    // ─── Organ Function (Kidney) ──────────────────────────────────────
+    @Column(precision = 6, scale = 3)
+    private BigDecimal creatinine;
 
-    public void setSystolicPressure(int systolicPressure) {
-        this.systolicPressure = systolicPressure;
-    }
+    @Column(precision = 8, scale = 2)
+    private BigDecimal bun;
 
-    // Getter and Setter for diastolic blood pressure
-    public int getDiastolicPressure() {
-        return diastolicPressure;
-    }
+    @Column(precision = 8, scale = 2)
+    private BigDecimal egfr;
 
-    public void setDiastolicPressure(int diastolicPressure) {
-        this.diastolicPressure = diastolicPressure;
-    }
+    // ─── Anthropometric ───────────────────────────────────────────────
+    @Column(name = "height_cm", precision = 6, scale = 2)
+    private BigDecimal heightCm;
 
-    // Getter and Setter for heart rate
-    public double getHeartRate() {
-        return heartRate;
-    }
+    @Column(name = "weight_kg", precision = 6, scale = 2)
+    private BigDecimal weightKg;
 
-    public void setHeartRate(double heartRate) {
-        this.heartRate = heartRate;
-    }
+    @Column(precision = 5, scale = 2)
+    private BigDecimal bmi;
 
-    // Getter and Setter for glucose level
-    public double getGlucose() {
-        return glucose;
-    }
+    @Column(name = "waist_cm", precision = 6, scale = 2)
+    private BigDecimal waistCm;
 
-    public void setGlucose(double glucose) {
-        this.glucose = glucose;
-    }
+    @Column(name = "hip_cm", precision = 6, scale = 2)
+    private BigDecimal hipCm;
 
-    // Getter and Setter for the associated patient
-    public Patient getPatient() {
-        return patient;
-    }
+    @Column(name = "waist_hip_ratio", precision = 4, scale = 3)
+    private BigDecimal waistHipRatio;
 
-    public void setPatient(Patient patient) {
-        this.patient = patient;
-    }
+    @Column(name = "skinfold_mm", precision = 6, scale = 2)
+    private BigDecimal skinfoldMm;
+
+    // ─── Lifestyle ────────────────────────────────────────────────────
+    @Column(name = "smoking_status", length = 20)
+    private String smokingStatus;
+
+    @Column(name = "alcohol_units", precision = 5, scale = 1)
+    private BigDecimal alcoholUnits;
+
+    @Column(name = "activity_level", length = 20)
+    private String activityLevel;
+
+    @Column(name = "sleep_hours", precision = 4, scale = 1)
+    private BigDecimal sleepHours;
+
+    /** Timestamp when this record was created. */
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
 }
